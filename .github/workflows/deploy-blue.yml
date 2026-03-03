@@ -5,18 +5,17 @@ on:
     branches:
       - main
 
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GAR_LOCATION: europe-west1
-  GAR_REPOSITORY: week3-repo
-  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
-  GKE_LOCATION: ${{ secrets.GKE_LOCATION }}
-  NAMESPACE: app-prod
-  IMAGE_NAME: app-blue
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    env:  # ← HIER, niet bovenaan!
+      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GAR_LOCATION: europe-west1
+      GAR_REPOSITORY: week3-repo
+      GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
+      GKE_LOCATION: ${{ secrets.GKE_LOCATION }}
+      NAMESPACE: app-prod
+      IMAGE_NAME: app-blue
 
     steps:
       - name: Checkout
