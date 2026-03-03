@@ -15,41 +15,49 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # STEP 1: AUTHENTICATE EERST
+      # 1. Google Cloud authenticatie
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      # STEP 2: DAN gcloud setup
+      # 2. GCloud SDK setup
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
+      # 3. GKE auth plugin (vereist voor kubectl)
       - name: Install GKE auth plugin
         run: |
-          # Google Cloud key correct importeren (2025 methode)
           curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
           echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
           sudo apt-get update
           sudo apt-get install -y google-cloud-sdk-gke-gcloud-auth-plugin
           echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
+      # 4. Docker auth voor Artifact Registry
       - name: Configure Docker
         run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
 
+      # 5. Build + push Docker image
       - name: Build and push
         run: |
           IMAGE="europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}"
+          echo "Building $IMAGE"
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
-      - name: Update K8s deployment image (blue)
-        env:
-          IMAGE: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}
+      # 6. GKE connectie + deployment update (CRUCIAAL: get-credentials eerst!)
+      - name: Deploy to GKE
         run: |
-          echo "Updating with IMAGE: $IMAGE"
+          # Cluster credentials ophalen
+          gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} \
+            --location ${{ secrets.GKE_LOCATION }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+          
+          # Deployment updaten
+          IMAGE="europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}"
+          echo "Updating deployment with: $IMAGE"
           kubectl set image deployment/app-blue app="$IMAGE" -n app-prod
-          kubectl rollout status deployment/app-blue -n app-prod
-
+          kubectl rollout status deployment/app-blue -n app-prod --timeout=300s
