@@ -1,0 +1,30 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: saxion-ingress
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    # Optioneel: static IP reserveren
+    # networking.gke.io/load-balancer-type: "External"
+spec:
+  rules:
+  - host: bison.mysaxion.nl
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: bison-service
+            port:
+              number: 80
+  - host: brightspace.mysaxion.nl
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: brightspace-service
+            port:
+              number: 80
