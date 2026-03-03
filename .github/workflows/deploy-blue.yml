@@ -45,9 +45,11 @@ jobs:
           docker build -t "$IMAGE" .
           docker push "$IMAGE"
 
-      - name: Deploy to GKE
+      - name: Update K8s deployment image (blue)
+        env:
+          IMAGE: europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}
         run: |
-          gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} \
-            --location ${{ secrets.GKE_LOCATION }} \
-            --project ${{ secrets.GCP_PROJECT_ID }}
+          echo "Updating with IMAGE: $IMAGE"
           kubectl set image deployment/app-blue app="$IMAGE" -n app-prod
+          kubectl rollout status deployment/app-blue -n app-prod
+
