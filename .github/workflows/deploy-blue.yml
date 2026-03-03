@@ -8,43 +8,37 @@ on:
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-    env:  # ← HIER, niet bovenaan!
-      PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-      GAR_LOCATION: europe-west1
-      GAR_REPOSITORY: week3-repo
-      GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
-      GKE_LOCATION: ${{ secrets.GKE_LOCATION }}
-      NAMESPACE: app-prod
-      IMAGE_NAME: app-blue
-
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+      # STEP 1: AUTHENTICATE EERST
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # STEP 2: DAN gcloud setup
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Configure Docker auth for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${GAR_LOCATION}-docker.pkg.dev --quiet
+      - name: Configure Docker
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
 
-      - name: Build Docker image
+      - name: Build and push
         run: |
-          IMAGE="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          IMAGE="europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}"
           docker build -t "$IMAGE" .
-
-      - name: Push Docker image
-        run: |
           docker push "$IMAGE"
 
-      - name: Get GKE credentials
+      - name: Deploy to GKE
         run: |
-          gcloud container clusters get-credentials $GKE_CLUSTER --location $GKE_LOCATION --project $PROJECT_ID
-
-      - name: Update K8s deployment image (blue)
-        run: |
-          kubectl set image deployment/app-blue app=${IMAGE} -n ${NAMESPACE}
+          gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} \
+            --location ${{ secrets.GKE_LOCATION }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+          kubectl set image deployment/app-blue app="$IMAGE" -n app-prod
