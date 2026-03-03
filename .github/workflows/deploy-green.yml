@@ -3,49 +3,61 @@ name: Build & Deploy Green
 on:
   push:
     branches:
-      - test
-
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  GAR_LOCATION: europe-west1
-  GAR_REPOSITORY: week3-repo
-  GKE_CLUSTER: ${{ secrets.GKE_CLUSTER }}
-  GKE_LOCATION: ${{ secrets.GKE_LOCATION }}
-  NAMESPACE: app-prod
-  IMAGE_NAME: app-green
+      - main
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: 'read'
+      id-token: 'write'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v2
+      # 1. Google Cloud authenticatie
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2. GCloud SDK setup
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      - name: Configure Docker auth for Artifact Registry
+      # 3. GKE auth plugin (vereist voor kubectl)
+      - name: Install GKE auth plugin
         run: |
-          gcloud auth configure-docker ${GAR_LOCATION}-docker.pkg.dev --quiet
+          curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+          sudo apt-get update
+          sudo apt-get install -y google-cloud-sdk-gke-gcloud-auth-plugin
+          echo "USE_GKE_GCLOUD_AUTH_PLUGIN=True" >> $GITHUB_ENV
 
-      - name: Build Docker image
+      # 4. Docker auth voor Artifact Registry
+      - name: Configure Docker
+        run: gcloud auth configure-docker europe-west1-docker.pkg.dev --quiet
+
+      # 5. Build + push Docker image
+      - name: Build and push
         run: |
-          IMAGE="${GAR_LOCATION}-docker.pkg.dev/${PROJECT_ID}/${GAR_REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
-          echo "IMAGE=$IMAGE" >> $GITHUB_ENV
+          IMAGE="europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}"
+          echo "Building $IMAGE"
           docker build -t "$IMAGE" .
-
-      - name: Push Docker image
-        run: |
           docker push "$IMAGE"
 
-      - name: Get GKE credentials
+      # 6. GKE connectie + deployment update (CRUCIAAL: get-credentials eerst!)
+      - name: Deploy to GKE
         run: |
-          gcloud container clusters get-credentials $GKE_CLUSTER --location $GKE_LOCATION --project $PROJECT_ID
-
-      - name: Update K8s deployment image (green)
-        run: |
-          kubectl set image deployment/app-green app=${IMAGE} -n ${NAMESPACE}
+          # Cluster credentials ophalen
+          gcloud container clusters get-credentials ${{ secrets.GKE_CLUSTER }} \
+            --location ${{ secrets.GKE_LOCATION }} \
+            --project ${{ secrets.GCP_PROJECT_ID }}
+          
+          # Deployment updaten
+          IMAGE="europe-west1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/week3-repo/app-blue:${GITHUB_SHA}"
+          echo "Updating deployment with: $IMAGE"
+          kubectl set image deployment/app-green app="$IMAGE" -n app-prod
+          kubectl rollout status deployment/app-green -n app-prod --timeout=300s
