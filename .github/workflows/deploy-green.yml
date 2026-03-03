@@ -3,7 +3,7 @@ name: Build & Deploy Green
 on:
   push:
     branches:
-      - main
+      - test
 
 jobs:
   build-and-deploy:
