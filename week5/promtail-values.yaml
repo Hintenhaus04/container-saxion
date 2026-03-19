@@ -1,0 +1,4 @@
+#code is from school so may be outdated
+config:
+  clients:
+    - url: http://loki-loki-distributed-gateway.loki/loki/api/v1/push
